@@ -77,28 +77,15 @@ class CodeChunker:
 
 class VectorStore:
     """Manages vector database operations with ChromaDB"""
-    
+
     def __init__(self, persist_directory: str = "./chroma_db"):
         self.persist_directory = persist_directory
-        # Try to use Voyage Code embeddings first, fallback to alternatives
-        try:
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name="voyage-code-2",  # Code-aware embeddings as per your requirements
-                model_kwargs={'device': 'cpu'}
-            )
-        except Exception:
-            try:
-                # Fallback to a more widely available code-aware model
-                self.embeddings = HuggingFaceEmbeddings(
-                    model_name="microsoft/codebert-base",
-                    model_kwargs={'device': 'cpu'}
-                )
-            except Exception:
-                # Final fallback to general purpose model
-                self.embeddings = HuggingFaceEmbeddings(
-                    model_name="all-MiniLM-L6-v2",
-                    model_kwargs={'device': 'cpu'}
-                )
+
+        # Directly load the single, reliable model that works on Streamlit Cloud
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'}
+        )
         self.vectorstore = None
     
     def create_vectorstore(self, documents: List[Document], collection_name: str = None) -> bool:
