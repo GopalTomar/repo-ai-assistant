@@ -1,0 +1,11 @@
+# Ignore environment file with secret API keys
+.env
+
+# Ignore Python cache files
+__pycache__/
+
+# Ignore the virtual environment folder
+codebase_rag/
+
+# Ignore the local Chroma vector database
+chroma_db/
