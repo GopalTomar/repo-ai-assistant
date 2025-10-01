@@ -135,11 +135,13 @@ class CodebaseManager:
     
     def get_code_files(self, repo_path: str) -> List[Dict[str, str]]:
         """Get all relevant code files from the repository"""
+        # ALL LOWERCASE for reliable comparison
         code_extensions = {
             '.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.cpp', '.c', 
             '.h', '.hpp', '.cs', '.php', '.rb', '.go', '.rs', '.scala',
             '.kt', '.swift', '.r', '.sql', '.md', '.txt', '.yml', '.yaml',
-            '.json', '.xml', '.html', '.css', '.sh', '.dockerfile', '.vue'
+            '.json', '.xml', '.html', '.css', '.sh', '.dockerfile', '.vue',
+            '.ipynb'  # Added Jupyter notebooks
         }
         
         ignore_dirs = {
@@ -152,7 +154,15 @@ class CodebaseManager:
         ignore_files = {
             '.gitignore', '.env', '.env.local', '.DS_Store',
             'package-lock.json', 'yarn.lock', '.gitattributes',
-            'LICENSE', 'license.txt', 'LICENSE.md'
+            'LICENSE', 'license.txt', 'LICENSE.md', '.gitkeep'
+        }
+        
+        # CRITICAL: Also ignore large binary/data files
+        ignore_patterns = {
+            '.h5', '.keras', '.npy', '.npz', '.pkl', '.pickle',
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
+            '.pdf', '.zip', '.tar', '.gz', '.rar', '.7z',
+            '.exe', '.dll', '.so', '.dylib', '.whl'
         }
         
         files = []
@@ -187,15 +197,30 @@ class CodebaseManager:
                     files_skipped += 1
                     continue
                 
-                # Check extension
-                if file_path.suffix.lower() not in code_extensions:
+                # Get the file extension in lowercase
+                file_extension = file_path.suffix.lower()
+                
+                # Skip binary/data files
+                if file_extension in ignore_patterns:
                     files_skipped += 1
+                    continue
+                
+                # CRITICAL FIX: Check extension
+                if file_extension not in code_extensions:
+                    files_skipped += 1
+                    # Debug: show what's being skipped
+                    if total_files_scanned <= 20:  # Only log first 20 for debugging
+                        st.warning(f"Skipping {file_path.name} with extension '{file_extension}'")
                     continue
                 
                 try:
                     # Try to read file content
                     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
+                    
+                    # Debug log for first few files
+                    if len(files) < 5:
+                        st.info(f"✅ Reading: {file_path.name} ({len(content)} chars)")
                     
                     # Skip very large files (>500KB)
                     if len(content) > 500000:
@@ -212,7 +237,7 @@ class CodebaseManager:
                     files.append({
                         'path': relative_path,
                         'content': content,
-                        'extension': file_path.suffix.lower()
+                        'extension': file_extension  # Use the normalized lowercase extension
                     })
                     
                 except Exception as e:
@@ -225,18 +250,26 @@ class CodebaseManager:
                    f"{len(files)} code files found, {files_skipped} files skipped")
             
             if len(files) == 0:
-                st.error("No code files found!")
-                st.error("Possible reasons:")
+                st.error("❌ No code files found!")
+                st.error("**Possible reasons:**")
                 st.error("1. Repository might be empty or contain only binary files")
                 st.error("2. All files are being filtered out by ignore rules")
                 st.error("3. Files might have unsupported extensions")
-                st.info(f"Looking for extensions: {', '.join(sorted(list(code_extensions)[:15]))}")
                 
-                # Show what was in the root directory
+                # Show what extensions we're looking for
+                st.info(f"**Looking for these extensions:** {', '.join(sorted(list(code_extensions)))}")
+                
+                # Show what was in the root directory with file extensions
                 try:
                     root_contents = list(repo_path.iterdir())
-                    root_files = [f.name for f in root_contents[:20]]
-                    st.info(f"Repository root contains: {root_files}")
+                    root_files_with_ext = [(f.name, f.suffix.lower()) for f in root_contents if f.is_file()]
+                    st.info(f"**Repository files found:** {root_files_with_ext[:20]}")
+                    
+                    # Find .py files specifically
+                    py_files = [f for f in root_contents if f.suffix.lower() == '.py']
+                    if py_files:
+                        st.error(f"❗ Found {len(py_files)} .py files but they were filtered out!")
+                        st.error(f"Python files: {[f.name for f in py_files]}")
                 except Exception as e:
                     st.error(f"Could not list root directory: {e}")
         
