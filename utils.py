@@ -144,21 +144,23 @@ class CodebaseManager:
             '.ipynb'  # Added Jupyter notebooks
         }
         
+        # Directories to skip
         ignore_dirs = {
-            '.git', '__pycache__', 'node_modules', '.venv', 'venv',
+            '.git', 'node_modules', '.venv', 'venv',
             '.pytest_cache', '.mypy_cache', 'dist', 'build', '.next',
             'target', 'bin', 'obj', '.idea', '.vscode', 'coverage',
-            '.nyc_output', 'logs', 'temp', 'tmp', '.vs'
+            'saved_model', 'saved_model_01'
         }
         
+        # Files to skip
         ignore_files = {
             '.gitignore', '.env', '.env.local', '.DS_Store',
             'package-lock.json', 'yarn.lock', '.gitattributes',
             'LICENSE', 'license.txt', 'LICENSE.md', '.gitkeep'
         }
         
-        # CRITICAL: Also ignore large binary/data files
-        ignore_patterns = {
+        # Binary file extensions to skip
+        binary_extensions = {
             '.h5', '.keras', '.npy', '.npz', '.pkl', '.pickle',
             '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
             '.pdf', '.zip', '.tar', '.gz', '.rar', '.7z',
@@ -187,95 +189,111 @@ class CodebaseManager:
                 if not file_path.is_file():
                     continue
                 
-                # Skip if in ignore directory
-                if any(ignore_dir in file_path.parts for ignore_dir in ignore_dirs):
-                    files_skipped += 1
-                    continue
-                
-                # Skip if ignore file
-                if file_path.name in ignore_files:
-                    files_skipped += 1
-                    continue
-                
-                # Get the file extension in lowercase
+                # Get file name and extension
+                file_name = file_path.name
                 file_extension = file_path.suffix.lower()
                 
-                # Skip binary/data files
-                if file_extension in ignore_patterns:
+                # Skip if in ignore directory - check if ANY parent directory is in ignore list
+                path_parts_lower = [p.lower() for p in file_path.parts]
+                if any(ignore_dir.lower() in path_parts_lower for ignore_dir in ignore_dirs):
                     files_skipped += 1
                     continue
                 
-                # CRITICAL FIX: Check extension
+                # Skip if filename matches ignore list
+                if file_name in ignore_files:
+                    files_skipped += 1
+                    continue
+                
+                # Skip binary files
+                if file_extension in binary_extensions:
+                    files_skipped += 1
+                    continue
+                
+                # Check if this is a code file we want
                 if file_extension not in code_extensions:
                     files_skipped += 1
-                    # Debug: show what's being skipped
-                    if total_files_scanned <= 20:  # Only log first 20 for debugging
-                        st.warning(f"Skipping {file_path.name} with extension '{file_extension}'")
                     continue
                 
+                # If we reach here, we found a code file!
+                st.info(f"📄 Found code file: {file_name}")
+                
                 try:
-                    # Try to read file content
+                    # Read the file
                     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
                     
-                    # Debug log for first few files
-                    if len(files) < 5:
-                        st.info(f"✅ Reading: {file_path.name} ({len(content)} chars)")
-                    
-                    # Skip very large files (>500KB)
+                    # Check size
                     if len(content) > 500000:
-                        st.warning(f"Skipping large file: {file_path.name} ({len(content)} bytes)")
+                        st.warning(f"⚠️ Skipping {file_name}: too large ({len(content)} bytes)")
                         files_skipped += 1
                         continue
                     
-                    # Skip empty or very small files
+                    # Check if file has meaningful content
                     if len(content.strip()) < 20:
+                        st.warning(f"⚠️ Skipping {file_name}: too small ({len(content.strip())} chars)")
                         files_skipped += 1
                         continue
                     
+                    # Add to our list!
                     relative_path = str(file_path.relative_to(repo_path))
                     files.append({
                         'path': relative_path,
                         'content': content,
-                        'extension': file_extension  # Use the normalized lowercase extension
+                        'extension': file_extension
                     })
                     
+                    st.success(f"✅ Added: {file_name}")
+                    
                 except Exception as e:
-                    st.warning(f"Could not read file {file_path.name}: {str(e)}")
+                    st.error(f"❌ Error reading {file_name}: {str(e)}")
                     files_skipped += 1
                     continue
             
-            # Log scanning results
-            st.info(f"Scan complete: {total_files_scanned} files scanned, "
+            # Log results
+            st.info(f"📊 Scan complete: {total_files_scanned} files scanned, "
                    f"{len(files)} code files found, {files_skipped} files skipped")
             
+            # If no files found, provide detailed diagnostics
             if len(files) == 0:
                 st.error("❌ No code files found!")
-                st.error("**Possible reasons:**")
-                st.error("1. Repository might be empty or contain only binary files")
-                st.error("2. All files are being filtered out by ignore rules")
-                st.error("3. Files might have unsupported extensions")
+                st.error("**Debugging information:**")
                 
-                # Show what extensions we're looking for
-                st.info(f"**Looking for these extensions:** {', '.join(sorted(list(code_extensions)))}")
-                
-                # Show what was in the root directory with file extensions
+                # List all files with their extensions
                 try:
-                    root_contents = list(repo_path.iterdir())
-                    root_files_with_ext = [(f.name, f.suffix.lower()) for f in root_contents if f.is_file()]
-                    st.info(f"**Repository files found:** {root_files_with_ext[:20]}")
+                    all_files = list(repo_path.rglob('*'))
+                    py_files = [f for f in all_files if f.is_file() and f.suffix.lower() == '.py']
                     
-                    # Find .py files specifically
-                    py_files = [f for f in root_contents if f.suffix.lower() == '.py']
+                    st.info(f"**Total files in repo:** {len([f for f in all_files if f.is_file()])}")
+                    st.info(f"**.py files found:** {len(py_files)}")
+                    
                     if py_files:
-                        st.error(f"❗ Found {len(py_files)} .py files but they were filtered out!")
-                        st.error(f"Python files: {[f.name for f in py_files]}")
+                        st.error("**Python files detected but not added:**")
+                        for pf in py_files[:10]:
+                            st.error(f"  - {pf.name} at {pf.relative_to(repo_path)}")
+                            
+                            # Check why it was skipped
+                            is_in_ignore_dir = any(ignore_dir.lower() in [p.lower() for p in pf.parts] 
+                                                   for ignore_dir in ignore_dirs)
+                            if is_in_ignore_dir:
+                                st.error(f"    → Skipped: in ignored directory")
+                            
+                            try:
+                                with open(pf, 'r') as f:
+                                    content = f.read()
+                                if len(content.strip()) < 20:
+                                    st.error(f"    → Skipped: too small ({len(content.strip())} chars)")
+                                elif len(content) > 500000:
+                                    st.error(f"    → Skipped: too large ({len(content)} bytes)")
+                                else:
+                                    st.error(f"    → Should have been added! ({len(content)} chars)")
+                            except Exception as e:
+                                st.error(f"    → Error reading: {e}")
+                
                 except Exception as e:
-                    st.error(f"Could not list root directory: {e}")
+                    st.error(f"Error during diagnostics: {e}")
         
         except Exception as e:
             st.error(f"Error scanning repository: {str(e)}")
-            st.error(f"Error type: {type(e).__name__}")
             import traceback
             st.error(f"Traceback: {traceback.format_exc()}")
         
