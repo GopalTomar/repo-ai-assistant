@@ -115,7 +115,7 @@ def display_header():
     <div class="main-header">
         <h1>💬 Talk to Your Codebase</h1>
         <p>Upload any GitHub repository and chat with your code using advanced RAG technology</p>
-        <p><strong>Powered by:</strong> Groq Llama-3.1-8b • ChromaDB • Voyage Code Embeddings</p>
+        <p><strong>Powered by:</strong> Groq Llama-3.1-8b • ChromaDB • Code Embeddings</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -170,36 +170,104 @@ def display_sidebar():
                 st.rerun()
 
 def load_repository(repo_url: str):
-    """Load and process repository"""
+    """Load and process repository with comprehensive error handling"""
     repo_name = extract_repo_name(repo_url)
     st.session_state.current_repo = repo_name
     
-    with st.spinner(f"📥 Cloning {repo_name}..."):
-        repo_path = st.session_state.codebase_manager.clone_repository(repo_url)
+    # Create progress tracking
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    if repo_path:
-        with st.spinner("📂 Analyzing code files..."):
-            files = st.session_state.codebase_manager.get_code_files(repo_path)
-            st.session_state.repo_stats = st.session_state.codebase_manager.get_repo_stats(files)
+    try:
+        # Step 1: Clone repository
+        status_text.text(f"🔄 Step 1/3: Cloning {repo_name}...")
+        progress_bar.progress(10)
         
-        if files:
-            st.info(f"Found {len(files)} code files with {st.session_state.repo_stats['total_lines']} lines of code")
-            
-            # Process with RAG pipeline
-            if st.session_state.rag_pipeline:
-                success = st.session_state.rag_pipeline.process_codebase(files)
-                if success:
-                    st.session_state.repo_loaded = True
-                    st.success(f"🎉 Successfully loaded {repo_name}! You can now ask questions about the codebase.")
-                    st.rerun()
-                else:
-                    st.error("Failed to process repository")
-            else:
-                st.error("RAG pipeline not initialized. Please check your API key.")
+        with st.spinner(f"Cloning {repo_name}..."):
+            repo_path = st.session_state.codebase_manager.clone_repository(repo_url)
+        
+        if not repo_path:
+            st.error("❌ Failed to clone repository")
+            st.error("**Troubleshooting Steps:**")
+            st.error("1. Verify the repository URL is correct")
+            st.error("2. Ensure the repository is public (not private)")
+            st.error("3. Check your internet connectivity")
+            st.error("4. Try a different repository")
+            st.info("**Test with:** https://github.com/streamlit/streamlit-example")
+            progress_bar.empty()
+            status_text.empty()
+            return
+        
+        progress_bar.progress(35)
+        
+        # Step 2: Analyze code files
+        status_text.text("📂 Step 2/3: Analyzing code files...")
+        progress_bar.progress(40)
+        
+        with st.spinner("Analyzing code files..."):
+            files = st.session_state.codebase_manager.get_code_files(repo_path)
+        
+        if not files:
+            st.error("❌ No code files found in the repository")
+            st.warning("**This could mean:**")
+            st.warning("1. The repository contains only binary files or images")
+            st.warning("2. All files have unsupported extensions")
+            st.warning("3. The repository is empty or very minimal")
+            st.info("**Supported file types:** .py, .js, .jsx, .ts, .tsx, .java, .cpp, .go, .rs, etc.")
+            st.info("**Try a code-heavy repository like:** https://github.com/pallets/flask")
+            progress_bar.empty()
+            status_text.empty()
+            return
+        
+        # Generate repository statistics
+        st.session_state.repo_stats = st.session_state.codebase_manager.get_repo_stats(files)
+        progress_bar.progress(65)
+        
+        st.success(f"✅ Found {len(files)} code files with {st.session_state.repo_stats['total_lines']:,} lines of code")
+        
+        # Step 3: Process with RAG pipeline
+        status_text.text("🧠 Step 3/3: Creating embeddings and indexing code...")
+        progress_bar.progress(70)
+        
+        if not st.session_state.rag_pipeline:
+            st.error("❌ RAG pipeline not initialized")
+            st.error("Please check your GROQ_API_KEY in environment variables")
+            progress_bar.empty()
+            status_text.empty()
+            return
+        
+        with st.spinner("Creating embeddings and vector database..."):
+            success = st.session_state.rag_pipeline.process_codebase(files)
+        
+        if success:
+            st.session_state.repo_loaded = True
+            progress_bar.progress(100)
+            st.success(f"🎉 Successfully loaded {repo_name}!")
+            st.balloons()
+            time.sleep(1)
+            progress_bar.empty()
+            status_text.empty()
+            st.rerun()
         else:
-            st.warning("No code files found in the repository")
-    else:
-        st.error("Failed to clone repository")
+            st.error("❌ Failed to process repository")
+            st.error("The RAG pipeline encountered an error during processing")
+            progress_bar.empty()
+            status_text.empty()
+            
+    except Exception as e:
+        st.error(f"❌ Unexpected error: {str(e)}")
+        st.error(f"Error type: {type(e).__name__}")
+        
+        # Show detailed error information
+        import traceback
+        with st.expander("🔍 View detailed error information"):
+            st.code(traceback.format_exc())
+        
+        st.info("Please try again or contact support if the issue persists")
+        
+    finally:
+        progress_bar.empty()
+        status_text.empty()
 
 def display_repository_stats():
     """Display repository statistics in sidebar"""
@@ -332,7 +400,7 @@ def display_example_queries():
             "🔍 Where is the main application logic?",
             "🗄️ How is the database connection handled?",
             "🔐 How does authentication work?",
-            "📝 What are the main API endpoints?",
+            "📡 What are the main API endpoints?",
             "🧪 How are tests structured?",
             "📦 What dependencies does this project use?",
             "🐛 Are there any error handling patterns?",
@@ -391,7 +459,7 @@ def display_welcome_screen():
         st.markdown("""
         <div class="metric-container">
             <h4>🎯 Code-Aware Search</h4>
-            <p>Voyage Code embeddings for superior code similarity matching.</p>
+            <p>Specialized embeddings for superior code similarity matching.</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -482,7 +550,7 @@ def display_repository_overview():
     
     with col4:
         st.metric(
-            label="🔤 File Types",
+            label="📚 File Types",
             value=len(stats['extensions'])
         )
     
@@ -531,7 +599,7 @@ def display_footer():
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666; padding: 1rem;">
-        <p>Built with ❤️ using Streamlit • Powered by Groq Llama-3.1-8b • ChromaDB • Voyage Code Embeddings</p>
+        <p>Built with Streamlit • Powered by Groq Llama-3.1-8b • ChromaDB • Code Embeddings</p>
         <p><small>⚠️ This tool analyzes public repositories. Ensure you have permission to analyze private code.</small></p>
     </div>
     """, unsafe_allow_html=True)
